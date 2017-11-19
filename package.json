@@ -10,14 +10,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stefano-lupo/Node-Server.git"
+    "url": "git+https://github.com/stefano-lupo/dfs-file-system.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/stefano-lupo/Node-Server/issues"
+    "url": "hhttps://github.com/stefano-lupo/dfs-file-system/issues"
   },
-  "homepage": "https://github.com/stefano-lupo/Node-Server#readme",
+  "homepage": "https://github.com/stefano-lupo/dfs-file-system#readme",
   "dependencies": {
     "bcrypt-nodejs": "0.0.3",
     "body-parser": "^1.17.2",
