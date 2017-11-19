@@ -1,5 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const fetch = require('node-fetch');
+
+const DIRECTORY_SERVER = "http://localhost:3001";
+
 
 const getFiles = (req, res) => {
   const fileMeta = req.app.get('fileMeta');
@@ -12,8 +16,27 @@ const getFiles = (req, res) => {
   })
 };
 
-const uploadFile = (req, res) => {
-  res.send("hi");
+const uploadFile = async (req, res) => {
+
+  const filename = req.file.filename;
+
+  const body = {
+    file: {
+      clientFileName: req.file.filename,
+      remoteNodeAddress: "localhost:3000",
+      remoteFileId: req.file.id
+    },
+    email: req.body.email
+  };
+
+
+  let response = await fetch(`${DIRECTORY_SERVER}/notify`, {method: "post", body: JSON.stringify(body), headers: {'Content-Type': 'application/json'}})
+  if(response.ok) {
+    res.send(`Successfully saved ${filename} for ${req.body.email}`);
+  } else {
+    res.status(500).send("Error saving ${filename} for ${req.body.email}");
+  }
+
 };
 
 const getFile = async (req, res) => {

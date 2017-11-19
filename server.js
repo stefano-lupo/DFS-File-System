@@ -1,4 +1,5 @@
-// Import Modules
+import path from 'path';
+
 import express from 'express';
 import mongoose from 'mongoose';
 import Grid from 'gridfs-stream';
@@ -43,14 +44,16 @@ db.once('open', function() {
 const storage = new GridFsStorage({
   url: dbURL,
   file: (req, file) => {
+    const filename = file.originalname;
+    const i = filename.lastIndexOf('.');
     return {
-      filename: file.originalname
+      filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`
     }
   }
 });
 const upload = multer({storage});
 
-// Register middleware (Must be done before CRUD handlers)
+
 app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
 app.use(bodyParser.json());                         // Parses application/json for req.body
 app.use(morgan('dev'));
