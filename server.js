@@ -26,29 +26,28 @@ require('dotenv').config();
 const gridSchema = new mongoose.Schema({}, {strict: false});
 const fileMeta = mongoose.model('fileMeta', gridSchema, 'fs.files');
 
+
+
+
+// Initialize the DB
 const dbURL = "mongodb://localhost/dfs_filesystem";
-const gfsOptions = {
+mongoose.connect(dbURL);
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'connection error:'));
+db.once('open', function() {
+  app.set('fileMeta', fileMeta);
+  console.log("Connected to Database");
+});
+
+
+const storage = new GridFsStorage({
   url: dbURL,
   file: (req, file) => {
     return {
       filename: file.originalname
     }
   }
-};
-
-
-// Initialize the DB
-mongoose.connect(dbURL);
-const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'connection error:'));
-db.once('open', function() {
-
-  // app.set('gfs', Grid(db, mongoose.mongo));
-  // app.set('upload', upload);
-  app.set('fileMeta', fileMeta)
-  console.log("Connected to Database");
 });
-const storage = new GridFsStorage(gfsOptions);
 const upload = multer({storage});
 
 // Register middleware (Must be done before CRUD handlers)

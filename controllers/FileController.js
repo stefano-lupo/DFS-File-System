@@ -13,9 +13,6 @@ const getFiles = (req, res) => {
 };
 
 const uploadFile = (req, res) => {
-  // const upload = req.app.get('upload');
-  // console.log(upload);
-  // upload.single('file');
   res.send("hi");
 };
 
