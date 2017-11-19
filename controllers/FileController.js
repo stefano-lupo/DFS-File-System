@@ -1,39 +1,53 @@
-let files = new Map();
-files.set("test.txt", "Wow you found test.txt");
-files.set("password.txt", "Wow you found password.txt");
-files.set("movies.txt", "Wow you found movies.txt");
+const fs = require('fs');
+const path = require('path');
 
-
-export const getFile = (req, res) => {
-  const { filename } = req.params;
-    console.log(`${filename} requested`);
-    const file = files.get(filename);
-    if(file) {
-      return res.send(file);
-    } else {
-      return res.send("No such file!");
+const getFiles = (req, res) => {
+  const fileMeta = req.app.get('fileMeta');
+  fileMeta.find({}, (err, files) => {
+    if(err) {
+      return res.send(err);
     }
+
+    res.send(files);
+  })
 };
 
-export const createFile = (req, res) => {
-  const { filename, file } = req.body;
-  console.log(`Creating file: ${filename}`);
-  files.set(filename, file);
-  res.send("File created!");
-
+const uploadFile = (req, res) => {
+  // const upload = req.app.get('upload');
+  // console.log(upload);
+  // upload.single('file');
+  res.send("hi");
 };
 
-export const updateFile = (req, res) => {
-  const { filename, file } = req.body;
-  console.log(`Updating file: ${filename}`);
-  files.set(filename, file);
-  res.send("File Updated");
+const getFile = async (req, res) => {
+  const gfs = req.app.get('gfs');
+
+  gfs.findOne({_id: "5a11c3b1e41453654de30e5a"}, (err, file) => {
+    if (err) {
+      return res.status(400).send(err);
+    }
+    else if (!file) {
+      return res.status(404).send('Error on the database looking for the file.');
+    }
+    res.set('Content-Type', file.contentType);
+    res.set('Content-Disposition', 'attachment; filename="' + file.filename + '"');
+
+    const readstream = gfs.createReadStream({
+      _id: "5a11c3b1e41453654de30e5a",
+    });
+
+    readstream.on("error", function(err) {
+      console.log(err);
+      res.end();
+    });
+    readstream.pipe(res);
+  })
 };
 
-export const deleteFile = (req, res) => {
-  const { filename }  = req.params;
-  console.log(`Deleting : ${filename}`);
-  files.delete(filename);
-  res.send("Deleted file!");
+module.exports = {
+  getFile,
+  getFiles,
+  uploadFile
 };
+
 
