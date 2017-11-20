@@ -6,8 +6,8 @@ const DIRECTORY_SERVER = "http://localhost:3001";
 
 
 const getFiles = (req, res) => {
-  const fileMeta = req.app.get('fileMeta');
-  fileMeta.find({}, (err, files) => {
+  const gfs = req.app.get('gfs');
+  gfs.files.find({}).toArray((err, files) => {
     if(err) {
       return res.send(err);
     }
@@ -17,12 +17,11 @@ const getFiles = (req, res) => {
 };
 
 const uploadFile = async (req, res) => {
-
-  const filename = req.file.filename;
+  const filename = req.file.originalname;
 
   const body = {
     file: {
-      clientFileName: req.file.filename,
+      clientFileName: filename,
       remoteNodeAddress: "localhost:3000",
       remoteFileId: req.file.id
     },
@@ -41,8 +40,8 @@ const uploadFile = async (req, res) => {
 
 const getFile = async (req, res) => {
   const gfs = req.app.get('gfs');
-
-  gfs.findOne({_id: "5a11c3b1e41453654de30e5a"}, (err, file) => {
+  const { _id } =  req.params;
+  gfs.findOne({_id}, (err, file) => {
     if (err) {
       return res.status(400).send(err);
     }
@@ -52,9 +51,7 @@ const getFile = async (req, res) => {
     res.set('Content-Type', file.contentType);
     res.set('Content-Disposition', 'attachment; filename="' + file.filename + '"');
 
-    const readstream = gfs.createReadStream({
-      _id: "5a11c3b1e41453654de30e5a",
-    });
+    const readstream = gfs.createReadStream({_id});
 
     readstream.on("error", function(err) {
       console.log(err);

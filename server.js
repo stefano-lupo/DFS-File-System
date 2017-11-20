@@ -24,8 +24,8 @@ const app = express();
 require('dotenv').config();
 
 // Make Grid files accessible
-const gridSchema = new mongoose.Schema({}, {strict: false});
-const fileMeta = mongoose.model('fileMeta', gridSchema, 'fs.files');
+// const gridSchema = new mongoose.Schema({}, {strict: false});
+// const fileMeta = mongoose.model('fileMeta', gridSchema, 'fs.files');
 
 
 
@@ -34,13 +34,18 @@ const fileMeta = mongoose.model('fileMeta', gridSchema, 'fs.files');
 const dbURL = "mongodb://localhost/dfs_filesystem";
 mongoose.connect(dbURL);
 const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'connection error:'));
+console.log(db);db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
-  app.set('fileMeta', fileMeta);
+
+  // Handles Reading from GFS
+  const gfs = Grid(db, mongoose.mongo);
+  app.set('gfs', gfs);
+  // app.set('fileMeta', fileMeta);
+
   console.log("Connected to Database");
 });
 
-
+// Handles Writing to GFS
 const storage = new GridFsStorage({
   url: dbURL,
   file: (req, file) => {
@@ -63,7 +68,7 @@ app.use(morgan('dev'));
 
 
 app.get('/files', FileController.getFiles);
-app.get('/file/:filename', FileController.getFile);
+app.get('/file/:_id', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);
 // app.put('/file', FileController.updateFile);
 // app.delete('/file/:filename', FileController.deleteFile);
