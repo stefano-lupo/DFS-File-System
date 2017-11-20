@@ -4,7 +4,10 @@ const fetch = require('node-fetch');
 
 const DIRECTORY_SERVER = "http://localhost:3001";
 
-
+/**
+ * GET files
+ * Gets all Files on this nodes filesystem (admin)
+ */
 const getFiles = (req, res) => {
   const gfs = req.app.get('gfs');
   gfs.files.find({}).toArray((err, files) => {
@@ -16,6 +19,10 @@ const getFiles = (req, res) => {
   })
 };
 
+/**
+ * POST /file
+ * Uploads a file to the Filesystem and notifies directory service of new file for this client
+ */
 const uploadFile = async (req, res) => {
   const filename = req.file.originalname;
 
@@ -38,6 +45,10 @@ const uploadFile = async (req, res) => {
 
 };
 
+/**
+ * GET /file/:id
+ * Gets file with associated ID
+ */
 const getFile = async (req, res) => {
   const gfs = req.app.get('gfs');
   const { _id } =  req.params;
@@ -46,7 +57,7 @@ const getFile = async (req, res) => {
       return res.status(400).send(err);
     }
     else if (!file) {
-      return res.status(404).send('Error on the database looking for the file.');
+      return res.status(404).send(`File ${_id} is not contained on this node`);
     }
     res.set('Content-Type', file.contentType);
     res.set('Content-Disposition', 'attachment; filename="' + file.filename + '"');

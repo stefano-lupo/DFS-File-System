@@ -1,5 +1,3 @@
-import path from 'path';
-
 import express from 'express';
 import mongoose from 'mongoose';
 import Grid from 'gridfs-stream';
@@ -10,24 +8,13 @@ import bodyParser from 'body-parser';
 import morgan from 'morgan';
 import jwt from 'jsonwebtoken';
 
-
-
 // Import Controllers
 import * as FileController from './controllers/FileController';
 
-
-
 const app = express();
-
 
 // Initialize .env
 require('dotenv').config();
-
-// Make Grid files accessible
-// const gridSchema = new mongoose.Schema({}, {strict: false});
-// const fileMeta = mongoose.model('fileMeta', gridSchema, 'fs.files');
-
-
 
 
 // Initialize the DB
@@ -40,7 +27,6 @@ db.once('open', function() {
   // Handles Reading from GFS
   const gfs = Grid(db, mongoose.mongo);
   app.set('gfs', gfs);
-  // app.set('fileMeta', fileMeta);
 
   console.log("Connected to Database");
 });
