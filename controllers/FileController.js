@@ -38,11 +38,11 @@ const uploadFile = async (req, res) => {
     email: req.body.email
   };
 
-
-  let response = await fetch(`${DIRECTORY_SERVER}/notify`, {method: "post", body: JSON.stringify(body), headers: {'Content-Type': 'application/json'}})
-  if(response.ok) {
+  const { ok, status, response } = await notifyDirectoryServer("post", body);
+  if(ok) {
     res.send(`Successfully saved ${filename} for ${req.body.email}`);
   } else {
+    console.log(status, response);
     res.status(500).send(`Error saving ${filename} for ${req.body.email}`);
   }
 
@@ -75,24 +75,29 @@ const updateFile = async(req, res) => {
     // Delete old file
     gfs.remove({_id}, (err) => {
       if (err) {
-        console.log(err);
+        console.log(`Error: ${err}`);
         return res.send(err);
       }
       console.log(`Removed file ${_id}`);
       console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
+
+      // Save the uploaded file in its place
       const writeStream = gfs.createWriteStream({_id, filename, metadata: {version}});
       fs.createReadStream(req.file.path).pipe(writeStream);
-      writeStream.on('close', (file) => {
+
+      writeStream.on('close', async (file) => {
         console.log(`File ${file.filename} was updated - closing`);
-        res.send(`File ${file.filename} was updated - closing`)
+        // return res.send(`File ${file.filename} was updated - closing`)
+        const body = {_id, filename, email: req.body.email};
+        const {ok, status, response} = await notifyDirectoryServer("put", body);
+        if(!ok) {
+          console.log(response);
+          return res.status(status).send(`Unable to update ${filename}`);
+        }
+
+        res.send(`File ${filename} updated successfully`);
       })
     });
-
-
-    //TODO: inform dir servcice - dont forget updated name
-
-
-
 
 
 
@@ -143,6 +148,31 @@ const deleteFile = (req, res) => {
     res.send(`Deleted file ${_id}`);
   });
 };
+
+async function notifyDirectoryServer(method, body) {
+  console.log("fetching");
+  let response = await fetch(`${DIRECTORY_SERVER}/notify`, {method, body: JSON.stringify(body), headers: {'Content-Type': 'application/json'}});
+  console.log("finished");
+
+  const { ok, status } = response;
+
+  const contentType = response.headers.get("content-type");
+  if(contentType && contentType.indexOf("application/json") !== -1) {
+    response = await response.json();
+  } else {
+    response = await response.text();
+  }
+
+  console.log("OK : ", ok);
+  console.log("OK : ", status);
+  console.log("OK : ", response);
+  return {
+    ok,
+    status,
+    response
+  }
+
+}
 
 module.exports = {
   getFile,
