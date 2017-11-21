@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Grid from 'gridfs-stream';
 import multer from 'multer';
 import GridFsStorage from 'multer-gridfs-storage';
+import uuidv1 from 'uuid';
 
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
@@ -21,7 +22,7 @@ require('dotenv').config();
 const dbURL = "mongodb://localhost/dfs_filesystem";
 mongoose.connect(dbURL);
 const db = mongoose.connection;
-console.log(db);db.on('error', console.error.bind(console, 'connection error:'));
+db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
 
   // Handles Reading from GFS
@@ -38,10 +39,14 @@ const storage = new GridFsStorage({
     const filename = file.originalname;
     const i = filename.lastIndexOf('.');
     return {
-      filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`
+      filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`,
+      metadata: {version: 0, uuid: uuidv1()}
     }
   }
 });
+
+
+
 const upload = multer({storage});
 
 
@@ -54,8 +59,10 @@ app.use(morgan('dev'));
 
 
 app.get('/files', FileController.getFiles);
-app.get('/file/:_id', FileController.getFile);
+app.get('/file/:uuid', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);
+app.post('/file/:uuid', upload.single('file'), FileController.updateFile);
+app.delete('/file/:uuid', FileController.deleteFile);
 // app.put('/file', FileController.updateFile);
 // app.delete('/file/:filename', FileController.deleteFile);
 
