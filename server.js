@@ -26,28 +26,39 @@ db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
 
   // Handles Reading from GFS
-  const gfs = Grid(db, mongoose.mongo);
+  const gfs = Grid(db.db, mongoose.mongo);
   app.set('gfs', gfs);
 
   console.log("Connected to Database");
 });
 
-// Handles Writing to GFS
+// Handles Writing to GFS - Can skip uploading tmp file as can be written straight to GFS
 const storage = new GridFsStorage({
   url: dbURL,
   file: (req, file) => {
     const filename = file.originalname;
     const i = filename.lastIndexOf('.');
     return {
-      filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`,
+      // filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`,
+      filename,
       metadata: {version: 0, uuid: uuidv1()}
+
     }
   }
 });
 
-
+// Handles updating a GFS file - Need to query the DB to find the old meta data so needs intermediate tmp file
+const diskStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, `${__dirname}/tmpUploads`)
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + '-' + Date.now())
+  }
+});
 
 const upload = multer({storage});
+const updater = multer({storage: diskStorage});
 
 
 app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
@@ -59,12 +70,10 @@ app.use(morgan('dev'));
 
 
 app.get('/files', FileController.getFiles);
-app.get('/file/:uuid', FileController.getFile);
+app.get('/file/:_id', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);
-app.post('/file/:uuid', upload.single('file'), FileController.updateFile);
-app.delete('/file/:uuid', FileController.deleteFile);
-// app.put('/file', FileController.updateFile);
-// app.delete('/file/:filename', FileController.deleteFile);
+app.post('/file/:_id', updater.single('file'), FileController.updateFile);
+app.delete('/file/:_id', FileController.deleteFile);
 
 
 

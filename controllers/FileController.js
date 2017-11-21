@@ -33,7 +33,7 @@ const uploadFile = async (req, res) => {
       clientFileName: filename,
       private: req.body.private,
       remoteNodeAddress: "localhost:3000",
-      remoteFileId: req.file.metadata.uuid
+      remoteFileId: req.file.id
     },
     email: req.body.email
   };
@@ -50,70 +50,71 @@ const uploadFile = async (req, res) => {
 
 
 /**
- * POST /file/:uuid
- * Updates a file with the associated metadata.uuid
+ * POST /file/:_id
+ * Updates a file with the associated _id
  */
 const updateFile = async(req, res) => {
-  let { uuid } = req.params;
+  const newName = req.file.originalname;
+  let _id = mongoose.Types.ObjectId(req.params._id);
   const gfs = req.app.get('gfs');
-  gfs.files.findOne({'metadata.uuid': uuid}, (err, fileMeta) => {
+
+  console.log(`Updating File: ${_id}`);
+
+  gfs.files.findOne({_id}, (err, fileMeta) => {
     if(!fileMeta) {
-      console.log(`Could not find file ${uuid}`);
-      return res.status(404).send(`No file ${uuid}`)
+      console.log(`Could not find file ${_id}`);
+      return res.status(404).send(`No such file ${_id} on this node.`)
     }
-    console.log("Found file by uuid for deletion");
 
-    // console.log(fileMeta);
-    const _id = mongoose.Types.ObjectId(fileMeta._id);
     const version = ++fileMeta.metadata.version;
+    let { filename } = fileMeta;
 
+    // Update filename if changed
+    filename = (filename === newName) ? filename : newName;
 
-    // delete old file
-    gfs.remove({_id}, function (err, test) {
-      if (err) return console.log(err);
-      console.log('success');
-
-      console.log(test);
-      console.log("Deleted file version ", version-1);
-
-      // update new file to be same as old file
-      gfs.files.update(
-        { _id: req.file.id },
-        { $set: {
-          _id,
-          'metadata.version': version,
-          'metadata.uuid': uuid
-        } }
-        , null,
-        (err, file) => {
-          if(err) return res.status(500).send("Error");
-          if(!file) return res.status(404).send("Error");
-          res.send("Successfully updated file");
-        });
-
+    // Delete old file
+    gfs.remove({_id}, (err) => {
+      if (err) {
+        console.log(err);
+        return res.send(err);
+      }
+      console.log(`Removed file ${_id}`);
+      console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
+      const writeStream = gfs.createWriteStream({_id, filename, metadata: {version}});
+      fs.createReadStream(req.file.path).pipe(writeStream);
+      writeStream.on('close', (file) => {
+        console.log(`File ${file.filename} was updated - closing`);
+        res.send(`File ${file.filename} was updated - closing`)
+      })
     });
 
 
-    // res.send("?")
+    //TODO: inform dir servcice - dont forget updated name
+
+
+
+
+
+
+
   });
 };
 
 
 /**
- * GET /file/:uuid
- * Gets file with associated metadata.uuid
+ * GET /file/:_id
+ * Gets file with associated _id
  */
 const getFile = async (req, res) => {
   const gfs = req.app.get('gfs');
-  const { uuid } =  req.params;
+  const { _id } =  req.params;
 
-  gfs.files.findOne({'metadata.uuid': uuid}, (err, fileMeta) => {
-    gfs.findOne({_id: fileMeta._id}, (err, file) => {
+    gfs.findOne({_id}, (err, file) => {
       if (err) {
         return res.status(400).send(err);
       }
       else if (!file) {
-        return res.status(404).send(`File ${uuid} is not contained on this node`);
+        return res.status(404).send(`File ${_id} is not contained on this node`);
       }
       res.set('Content-Type', file.contentType);
       res.set('Content-Disposition', 'attachment; filename="' + file.filename + '"');
@@ -126,28 +127,21 @@ const getFile = async (req, res) => {
       });
       readstream.pipe(res);
     })
-  })
 };
 
 /**
- * DELETE file/:uuid
- * Deletes file with specified uuid
+ * DELETE file/:_id
+ * Deletes file with specified id
  */
 const deleteFile = (req, res) => {
   const gfs = req.app.get('gfs');
-  const { uuid } = req.params;
-  const _id = mongoose.Types.ObjectId("5a14166c041ed908d4f06762");
+  const _id = mongoose.Types.ObjectId(req.params._id);
 
   gfs.remove({_id}, function (err) {
     if (err) return res.send("error");
-    console.log("Removed file chunks");
+    console.log(`Deleted file ${_id}`);
+    res.send(`Deleted file ${_id}`);
   });
-  console.log("about to start remove file");
-  gfs.files.remove({_id}, (err2) => {
-    if(err2) return res.send("error");
-    console.log("Removed file itself");
-  });
-  res.send("who knows")
 };
 
 module.exports = {
