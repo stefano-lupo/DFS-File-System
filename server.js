@@ -3,19 +3,18 @@ import mongoose from 'mongoose';
 import Grid from 'gridfs-stream';
 import multer from 'multer';
 import GridFsStorage from 'multer-gridfs-storage';
-import uuidv1 from 'uuid';
 
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
 import jwt from 'jsonwebtoken';
 
 // Import Controllers
-import * as FileController from './controllers/FileController';
+import FileController from './controllers/FileController';
 
 const app = express();
 
 // Initialize .env
-require('dotenv').config();
+// require('dotenv').config();
 
 
 // Initialize the DB
@@ -41,7 +40,7 @@ const storage = new GridFsStorage({
     return {
       // filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`,
       filename,
-      metadata: {version: 0, uuid: uuidv1()}
+      metadata: {version: 0}
 
     }
   }
