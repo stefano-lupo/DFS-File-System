@@ -32,12 +32,12 @@ const getFiles = (req, res) => {
 
 /**
  * POST /file
- * body: {file, private, email}
+ * body: {file, filename private, email}
  * Uploads a file to the Filesystem and notifies directory service of new file for this client
  * @response message indicating success/failure of upload
  */
 const uploadFile = async (req, res) => {
-  const filename = req.file.originalname;
+  const { filename } = req.body;
   console.log(`Uploaded ${filename}`);
   const body = {
     file: {
@@ -71,14 +71,14 @@ const updateFile = async(req, res) => {
 
   // Ensure client's lock is valid
   let { _id } = req.params;
-  const { email, lock } = req.body;
+  const { email, lock, filename } = req.body;
   const {ok, status, response } = await makeRequest(`${LOCK_SERVER}/validate`, "post", {email, _id, lock});
   if(!ok || !response.valid) {
     return res.status(status).send(response);
   }
 
 
-  const newName = req.file.originalname;
+  // const newName = filename;
   _id = mongoose.Types.ObjectId(req.params._id);
   const gfs = req.app.get('gfs');
 
@@ -91,10 +91,10 @@ const updateFile = async(req, res) => {
     }
 
     const version = ++fileMeta.metadata.version;
-    let { filename } = fileMeta;
-
-    // Update filename if changed
-    filename = (filename === newName) ? filename : newName;
+    // let { filename } = fileMeta;
+    //
+    // // Update filename if changed
+    // filename = (filename === newName) ? filename : newName;
 
     // Delete old file
     gfs.remove({_id}, (err) => {
@@ -110,6 +110,7 @@ const updateFile = async(req, res) => {
       fs.createReadStream(req.file.path).pipe(writeStream);
 
       // Notify directory service of updated file
+      // TODO: Only notify directory service if something changes?
       writeStream.on('close', async (file) => {
         console.log(`File ${file.filename} was updated - closing`);
 

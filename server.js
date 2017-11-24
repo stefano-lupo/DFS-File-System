@@ -31,14 +31,17 @@ db.once('open', function() {
   console.log("Connected to Database");
 });
 
+
+/****************************************************************************************************************
+ * NOTE
+ * The file must be posted LAST so that body is populated by the time this fires and can be used to build filename
+ *****************************************************************************************************************/
 // Handles Writing to GFS - Can skip uploading tmp file as can be written straight to GFS
 const storage = new GridFsStorage({
   url: dbURL,
   file: (req, file) => {
-    const filename = file.originalname;
-    const i = filename.lastIndexOf('.');
+    const { filename } = req.body;
     return {
-      // filename: `${filename.substring(0,i)}-${Date.now()}${filename.substr(i)}`,
       filename,
       metadata: {version: 0}
 
