@@ -4,55 +4,41 @@ const fetch = require('node-fetch');
 import mongoose from 'mongoose';
 
 const DIRECTORY_SERVER = "http://localhost:3001";
-const LOCK_SERVER = "http://192.168.1.17:3002";
+const LOCK_SERVER = "http://localhost:3002";
 
 
 
 /***********************************************************************************************************************
- * API
+ * Client API
  **********************************************************************************************************************/
 
 
 /**
- * GET /files
- * Gets all Files on this nodes filesystem (admin)
- * @response JSON array containing all the files on this node
- */
-const getFiles = (req, res) => {
-  const gfs = req.app.get('gfs');
-  gfs.files.find({}).toArray((err, files) => {
-    if(err) {
-      return res.send(err);
-    }
-
-    res.send(files);
-  })
-};
-
-
-/**
  * POST /file
- * body: {file, filename private, email}
+ * body: {file, filename, isPrivate}
  * Uploads a file to the Filesystem and notifies directory service of new file for this client
  * @response message indicating success/failure of upload
  */
+//TODO: make this encrypted with session token like everything else
 const uploadFile = async (req, res) => {
-  const { filename } = req.body;
+  const { clientId } = req;
+  const { filename, isPrivate } = req.body;
   console.log(`Uploaded ${filename}`);
+
   const body = {
     file: {
       clientFileName: filename,
-      private: req.body.private,
+      isPrivate,
       remoteNodeAddress: "http://localhost:3000",
       remoteFileId: req.file.id
     },
-    email: req.body.email
+    clientId
   };
 
   // Notify directory service of new file
   const { ok, status, response } = await makeRequest(`${DIRECTORY_SERVER}/notify`, "post", body);
   if(ok) {
-    res.send({message: `Successfully saved ${filename} for ${req.body.email}`});
+    res.send({message: `Successfully saved ${filename} for ${clientId}`});
   } else {
     console.log(status, response);
     res.status(status).send({message: response});
@@ -63,17 +49,20 @@ const uploadFile = async (req, res) => {
 
 /**
  * POST /file/:_id
- * body: {email, file, lock}
+ * body: {file, lock}
  * Updates a file with the associated _id
  * @response message indicating success/failure of update
  */
+//TODO: make this encrypted with session token like everything else
 const updateFile = async(req, res) => {
 
   // Ensure client's lock is valid
   let { _id } = req.params;
-  const { email, lock, filename } = req.body;
-  const {ok, status, response } = await makeRequest(`${LOCK_SERVER}/validate`, "post", {email, _id, lock});
+  const { lock, filename } = req.body;
+  const { clientId } = req;
+  const {ok, status, response } = await makeRequest(`${LOCK_SERVER}/validate`, "post", {clientId, _id, lock});
   if(!ok || !response.valid) {
+    console.log(response);
     return res.status(status).send(response);
   }
 
@@ -91,10 +80,6 @@ const updateFile = async(req, res) => {
     }
 
     const version = ++fileMeta.metadata.version;
-    // let { filename } = fileMeta;
-    //
-    // // Update filename if changed
-    // filename = (filename === newName) ? filename : newName;
 
     // Delete old file
     gfs.remove({_id}, (err) => {
@@ -114,7 +99,7 @@ const updateFile = async(req, res) => {
       writeStream.on('close', async (file) => {
         console.log(`File ${file.filename} was updated - closing`);
 
-        const body = {_id, filename, email: req.body.email};
+        const body = {_id, filename, clientId};
         const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/notify`, "put", body);
         if(!ok) {
           console.log(response);
@@ -165,16 +150,43 @@ const getFile = async (req, res) => {
  * Deletes file with specified id
  * @response message indicating the deletion was a success / failure
  */
-const deleteFile = (req, res) => {
+const deleteFile = async (req, res) => {
   const gfs = req.app.get('gfs');
   const _id = mongoose.Types.ObjectId(req.params._id);
+  const { clientId } = req;
 
-  gfs.remove({_id}, (err) => {
+  gfs.remove({_id}, async (err) => {
     if (err) return res.status(500).send(err);
+
+    // Notify directory service that file was deleted
+    const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/remoteFile/${clientId}/${_id}`, "delete");
+    if(!ok) {
+      console.log(response);
+      return res.status(status).send(response);
+    }
 
     console.log(`Deleted file ${_id}`);
     res.send({message: `Deleted file ${_id}`});
   });
+};
+
+
+
+/**
+ * NOTE DEBUG/ADMIN ONLY (or at least it should be)
+ * GET /files
+ * Gets all Files on this nodes filesystem (admin)
+ * @response JSON array containing all the files on this node
+ */
+const getFiles = (req, res) => {
+  const gfs = req.app.get('gfs');
+  gfs.files.find({}).toArray((err, files) => {
+    if(err) {
+      return res.send(err);
+    }
+
+    res.send(files);
+  })
 };
 
 
