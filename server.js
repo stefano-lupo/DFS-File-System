@@ -1,20 +1,38 @@
+import crypto from 'crypto';
+import moment from 'moment';
 import express from 'express';
 import mongoose from 'mongoose';
 import Grid from 'gridfs-stream';
 import multer from 'multer';
 import GridFsStorage from 'multer-gridfs-storage';
-
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
-import jwt from 'jsonwebtoken';
+
+
+// Initialize .env
+require('dotenv').config();
+
+
+// Make encryption parameters accessible
+const encryption = {
+  algorithm: process.env.SYMMETRIC_ENCRYPTION,
+  plainEncoding: process.env.PLAIN_ENCODING,
+  encryptedEncoding: process.env.ENCRYPTED_ENCODING,
+  serverKey: process.env.SERVER_KEY
+};
+
+
 
 // Import Controllers
 import FileController from './controllers/FileController';
 
-const app = express();
 
-// Initialize .env
-// require('dotenv').config();
+// Create Server
+const app = express();
+app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
+app.use(bodyParser.json());                         // Parses application/json for req.body
+app.use(morgan('dev'));
+
 
 
 // Initialize the DB
@@ -33,7 +51,8 @@ db.once('open', function() {
 
 
 /****************************************************************************************************************
- * NOTE
+ * NOTES
+ * This middleware should be declared AFTER auth middleware
  * The file must be posted LAST so that body is populated by the time this fires and can be used to build filename
  *****************************************************************************************************************/
 // Handles Writing to GFS - Can skip uploading tmp file as can be written straight to GFS
@@ -48,6 +67,7 @@ const storage = new GridFsStorage({
     }
   }
 });
+const upload = multer({storage});
 
 // Handles updating a GFS file - Need to query the DB to find the old meta data so needs intermediate tmp file
 const diskStorage = multer.diskStorage({
@@ -58,19 +78,58 @@ const diskStorage = multer.diskStorage({
     cb(null, file.fieldname + '-' + Date.now())
   }
 });
-
-const upload = multer({storage});
 const updater = multer({storage: diskStorage});
 
 
-app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
-app.use(bodyParser.json());                         // Parses application/json for req.body
-app.use(morgan('dev'));
+// Middleware to authenticate / decrypt incoming requests
+const authenticator = (req, res, next) => {
 
-// expose environment variables to app
-// app.set('jwtSecret', process.env.JWT_SECRET);
+  // Ensure auth ticket exists
+  const { authorization } = req.headers;
+  if(!authorization) {
+    console.log(`No Auth key provided`);
+    return res.status(401).send({message: `No authorization key provided`});
+  }
+
+  try {
+    // Decrypt auth ticket with server's private key
+    const ticket = decrypt(authorization);
+
+    // Parse the ticket from the decrypted string
+    let { _id, expires, sessionKey } = JSON.parse(ticket);
+    expires = moment(expires);
 
 
+    // Ensure the ticket is in date
+    if(moment().isAfter(expires)) {
+      console.log(`Ticket expired on ${expires.format()}`);
+      return res.status(401).send({message: `Authorization token expired on ${expires.format()}`});
+    }
+
+
+    // Pass the controllers the decrypted body and the client's _id
+    req.clientId = _id;
+    if(req.body.encrypted) {
+      req.decrypted = JSON.parse(decrypt(req.body.encrypted, sessionKey));
+    }
+  }
+
+  // If JSON couldn't be parsed, the token was
+  catch(err) {
+    console.log(err);
+    return res.status(401).send({message: `Invalid authorization key provided`})
+  }
+
+  next()
+};
+
+app.use(authenticator);
+
+
+
+
+
+// Endpoints
 app.get('/files', FileController.getFiles);
 app.get('/file/:_id', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);
@@ -83,3 +142,21 @@ app.delete('/file/:_id', FileController.deleteFile);
 app.listen(3000, function() {
   console.log('Listening on port 3000');
 });
+
+
+
+/**
+ * Decrypts the data using parameters defined in .env file
+ * @param data to be decrypted
+ * @param key used during the encryption
+ */
+function decrypt(data, key=encryption.serverKey) {
+  const { algorithm, plainEncoding, encryptedEncoding } = encryption;
+
+  const decipher = crypto.createDecipher(algorithm, key);
+  let deciphered = decipher.update(data, encryptedEncoding, plainEncoding);
+  deciphered += decipher.final(plainEncoding);
+
+  return deciphered
+}
+
