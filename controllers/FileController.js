@@ -4,7 +4,9 @@ const fetch = require('node-fetch');
 import mongoose from 'mongoose';
 
 const DIRECTORY_SERVER = "http://localhost:3001";
-const LOCK_SERVER = "http://localhost:3002";
+// const LOCK_SERVER = "http://localhost:3002";
+const LOCK_SERVER = "http://192.168.1.17:3002";
+const CACHING_SERVER = "http://localhost:3004";
 
 
 
@@ -99,10 +101,26 @@ const updateFile = async(req, res) => {
       writeStream.on('close', async (file) => {
         console.log(`File ${file.filename} was updated - closing`);
 
-        const body = {_id, filename, clientId};
-        const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/notify`, "put", body);
+        // Delete the temp file
+        fs.unlinkSync(req.file.path);
+
+        // Check if file name was updated in this update
+        if(fileMeta.filename !== filename) {
+
+          // Let the directory service know to update its mapping
+          const body = {_id, filename, clientId};
+          const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/notify`, "put", body);
+          if(!ok) {
+            console.error(response);
+            return res.status(status).send(response);
+          }
+        }
+
+        // Let caching service know this file was updated
+        const { ok, status, response } = await makeRequest(`${CACHING_SERVER}/notify/${_id}`, "put", {version});
+
         if(!ok) {
-          console.log(response);
+          console.error(response);
           return res.status(status).send(response);
         }
 
