@@ -139,8 +139,9 @@ app.delete('/file/:_id', FileController.deleteFile);
 
 
 // Initialize the Server
-app.listen(3000, function() {
-  console.log('Listening on port 3000');
+const port = process.argv[2] || process.env.port || 3000;
+app.listen(port, () => {
+  console.log(`Listening on port ${port}`);
 });
 
 
