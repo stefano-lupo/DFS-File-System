@@ -31,7 +31,7 @@ const uploadFile = async (req, res) => {
     file: {
       clientFileName: filename,
       isPrivate,
-      remoteNodeAddress: "http://localhost:3000",
+      remoteNodeAddress: req.app.get('ip'),
       remoteFileId: req.file.id
     },
     clientId

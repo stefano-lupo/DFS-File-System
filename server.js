@@ -36,7 +36,10 @@ app.use(morgan('dev'));
 
 
 // Initialize the DB
-const dbURL = "mongodb://localhost/dfs_filesystem";
+const port = process.argv[2] || process.env.port || 3000;
+app.set('port', port);
+app.set('ip', `http://localhost:${port}`);
+const dbURL = `mongodb://localhost/dfs_filesystem_${port}`;
 mongoose.connect(dbURL);
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
@@ -139,7 +142,6 @@ app.delete('/file/:_id', FileController.deleteFile);
 
 
 // Initialize the Server
-const port = process.argv[2] || process.env.port || 3000;
 app.listen(port, () => {
   console.log(`Listening on port ${port}`);
 });
