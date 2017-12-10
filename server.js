@@ -7,6 +7,8 @@ import multer from 'multer';
 import GridFsStorage from 'multer-gridfs-storage';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
+import fs from 'fs';
+import path from 'path';
 
 
 // Initialize .env
@@ -34,11 +36,15 @@ app.use(bodyParser.json());                         // Parses application/json f
 app.use(morgan('dev'));
 
 
-
-// Initialize the DB
+// Set some global constants to be used else where
 const port = process.argv[2] || process.env.port || 3000;
+const role = process.argv[3] || process.env.role || 'slave';
 app.set('port', port);
 app.set('ip', `http://localhost:${port}`);
+app.set('role', role);
+
+
+// Initialize the DB
 const dbURL = `mongodb://localhost/dfs_filesystem_${port}`;
 mongoose.connect(dbURL);
 const db = mongoose.connection;
@@ -72,13 +78,23 @@ const storage = new GridFsStorage({
 });
 const upload = multer({storage});
 
+
+// Ensure a folder exists for this ports tmp files
+const dir = `${__dirname}/tmpUploads/${port}`;
+console.log(`Saving files to ${dir}`);
+app.set('dir', dir);
+if(!fs.existsSync(dir)) {
+  fs.mkdir(dir);
+}
+
+
 // Handles updating a GFS file - Need to query the DB to find the old meta data so needs intermediate tmp file
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, `${__dirname}/tmpUploads`)
+    cb(null, dir)
   },
   filename: function (req, file, cb) {
-    cb(null, file.fieldname + '-' + Date.now())
+    cb(null, `${req.params._id}_${Date.now()}`);
   }
 });
 const updater = multer({storage: diskStorage});
@@ -126,10 +142,11 @@ const authenticator = (req, res, next) => {
   next()
 };
 
+// Inter Service Endpoints
+app.post('/slave/:_id', updater.single('file'), FileController.receiveUpdateFromMaster);
+
+
 app.use(authenticator);
-
-
-
 
 
 // Endpoints

@@ -2,9 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
 import mongoose from 'mongoose';
+import FormData from 'form-data';
 
 const DIRECTORY_SERVER = "http://localhost:3001";
-// const LOCK_SERVER = "http://localhost:3002";
 const LOCK_SERVER = "http://192.168.1.17:3002";
 const CACHING_SERVER = "http://localhost:3004";
 
@@ -40,6 +40,8 @@ const uploadFile = async (req, res) => {
   // Notify directory service of new file
   const { ok, status, response } = await makeRequest(`${DIRECTORY_SERVER}/notify`, "post", body);
   if(ok) {
+    const { slaves } = response;
+    await pushFileToSlaves(slaves, req.file.id, filename, req.app.get('gfs'), req.app.get('dir'));
     res.send({message: `Successfully saved ${filename} for ${clientId}`});
   } else {
     console.log(status, response);
@@ -104,20 +106,19 @@ const updateFile = async(req, res) => {
         // Delete the temp file
         fs.unlinkSync(req.file.path);
 
-        // Check if file name was updated in this update
-        if(fileMeta.filename !== filename) {
 
-          // Let the directory service know to update its mapping
-          const body = {_id, filename, clientId};
-          const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/notify`, "put", body);
-          if(!ok) {
-            console.error(response);
-            return res.status(status).send(response);
-          }
+        // Let the directory service know to update its mapping
+        const body = {_id, filename, clientId};
+        let {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/notify`, "put", body);
+        if(!ok) {
+          console.error(response);
+          return res.status(status).send(response);
         }
 
         // Let caching service know this file was updated
-        const { ok, status, response } = await makeRequest(`${CACHING_SERVER}/notify/${_id}`, "put", {version});
+        ({ ok, status, response } = await makeRequest(`${CACHING_SERVER}/notify/${_id}`, "put", {version}));
+
+        await pushFileToSlaves(response.slaves, _id.toString(), filename, gfs, req.app.get('dir'));
 
         if(!ok) {
           console.error(response);
@@ -176,12 +177,24 @@ const deleteFile = async (req, res) => {
   gfs.remove({_id}, async (err) => {
     if (err) return res.status(500).send(err);
 
+    // If I am not the master, my work is done.
+    if(req.app.get('role') === 'slave') {
+      return res.send({message: `Successfully dropped file`});
+    }
+
     // Notify directory service that file was deleted
     const {ok, status, response} = await makeRequest(`${DIRECTORY_SERVER}/remoteFile/${clientId}/${_id}`, "delete");
     if(!ok) {
-      console.log(response);
+      console.error(response);
       return res.status(status).send(response);
     }
+
+    // Tell all slaves to drop the file
+    const requests = response.slaves.map(slave => {
+      return makeRequest(`${slave}`)
+    });
+
+    await Promise.all(requests);
 
     console.log(`Deleted file ${_id}`);
     res.send({message: `Deleted file ${_id}`});
@@ -207,6 +220,65 @@ const getFiles = (req, res) => {
   })
 };
 
+/**
+ * POST /slave/:_id
+ * Notifies Slave to store / update a file
+ *
+ */
+const receiveUpdateFromMaster = async (req, res) => {
+  // Ensure client's lock is valid
+  let { _id } = req.params;
+  const { filename } = req.body;
+
+  _id = mongoose.Types.ObjectId(_id);
+  const gfs = req.app.get('gfs');
+
+  console.log(`Updating File: ${_id}`);
+
+  gfs.files.findOne({_id}, async (err, fileMeta) => {
+
+    // Delete old file
+    if(fileMeta) {
+      const version = ++fileMeta.metadata.version;
+
+      // Not sure if this will work
+      await gfs.remove({_id}, (err));
+        console.log(`Removed file ${_id}`);
+        console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
+
+        // Save the uploaded file in its place
+        const writeStream = gfs.createWriteStream({_id, filename, metadata: {version}});
+        fs.createReadStream(req.file.path).pipe(writeStream);
+
+        writeStream.on('close', async (file) => {
+          console.log(`File ${file.filename} was updated - closing`);
+
+          // Delete the temp file
+          fs.unlinkSync(req.file.path);
+
+          res.send({message: `File ${filename} updated successfully`});
+        })
+      // });
+    } else {
+      const version = 0;
+      console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
+
+      // Save the uploaded file in its place
+      const writeStream = gfs.createWriteStream({_id, filename, metadata: {version}});
+      fs.createReadStream(req.file.path).pipe(writeStream);
+
+      writeStream.on('close', async (file) => {
+        console.log(`File ${file.filename} was updated - closing`);
+
+        // Delete the temp file
+        fs.unlinkSync(req.file.path);
+
+        res.send({message: `File ${filename} updated successfully`});
+      })
+    }
+  });
+};
+
 
 
 /***********************************************************************************************************************
@@ -229,7 +301,36 @@ async function makeRequest(endpoint, method, body) {
   }
 
   return {ok, status, response}
+}
 
+async function pushFileToSlaves(slaves, remoteFileId, filename, gfs, tmpdir) {
+  // Couldn't get streams to cooperate here, so just write it to a temp file and read form there (ew)
+  const writeStream = fs.createWriteStream(`${tmpdir}/${remoteFileId}.txt`);
+
+  const fromGfs = gfs.createReadStream({_id: remoteFileId});
+
+  fromGfs.on('error', (err) => {
+    console.error(`err: `, err);
+  });
+
+  fromGfs.on('close', () => {
+
+    const pushedChanges = slaves.map(async (slave) => {
+      console.log(`Making request`);
+      const readStream = fs.createReadStream(`${tmpdir}/${remoteFileId}.txt`);
+
+      // Build the form data
+      const formData = new FormData();
+      formData.append('filename', filename);
+      formData.append('file', readStream);
+      return await fetch(`${slave}/slave/${remoteFileId}`, {method: 'POST', body: formData});
+    });
+
+
+    console.log(`Finished pushing changes to slaves`);
+  });
+
+  fromGfs.pipe(writeStream);
 }
 
 module.exports = {
@@ -238,6 +339,7 @@ module.exports = {
   uploadFile,
   updateFile,
   deleteFile,
+  receiveUpdateFromMaster
 };
 
 
