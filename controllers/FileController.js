@@ -364,6 +364,7 @@ async function pushFileToSlaves(slaves, remoteFileId, filename, gfs, tmpdir) {
       // Move on once all slaves have received the file
       await Promise.all(pushedChangesToSlave);
       console.log(`Finished pushing changes to slaves, resolving`);
+      fs.unlinkSync(`${tmpdir}/${remoteFileId}.txt`);
       resolve();
     });
   });
