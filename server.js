@@ -8,7 +8,6 @@ import GridFsStorage from 'multer-gridfs-storage';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
 import fs from 'fs';
-import path from 'path';
 
 
 // Initialize .env
@@ -26,14 +25,14 @@ const encryption = {
 
 
 // Import Controllers
-import FileController from './controllers/FileController';
+import * as FileController from './controllers/FileController';
 
 
 // Create Server
 const app = express();
 app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
 app.use(bodyParser.json());                         // Parses application/json for req.body
-app.use(morgan('dev'));
+app.use(morgan('dev'));                             // Logs all incoming requests
 
 
 // Set some global constants to be used else where
@@ -139,6 +138,7 @@ const authenticator = (req, res, next) => {
     return res.status(401).send({message: `Invalid authorization key provided`})
   }
 
+  // Proceed to controller
   next()
 };
 
@@ -149,7 +149,7 @@ app.post('/slave/:_id', updater.single('file'), FileController.receiveUpdateFrom
 app.use(authenticator);
 
 
-// Endpoints
+// Public Endpoints
 app.get('/files', FileController.getFiles);
 app.get('/file/:_id', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);

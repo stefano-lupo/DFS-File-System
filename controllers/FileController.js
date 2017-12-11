@@ -22,11 +22,13 @@ const CACHING_SERVER = "http://localhost:3004";
  * @response message indicating success/failure of upload
  */
 //TODO: make this encrypted with session token like everything else
-const uploadFile = async (req, res) => {
+export const uploadFile = async (req, res) => {
   const { clientId } = req;
   const { filename, isPrivate } = req.body;
   console.log(`Uploaded ${filename}`);
 
+
+  // Notify directory service of new file
   const body = {
     file: {
       clientFileName: filename,
@@ -37,7 +39,6 @@ const uploadFile = async (req, res) => {
     clientId
   };
 
-  // Notify directory service of new file
   const { ok, status, response } = await makeRequest(`${DIRECTORY_SERVER}/notify`, "post", body);
   if(ok) {
     const { slaves } = response;
@@ -54,11 +55,12 @@ const uploadFile = async (req, res) => {
 /**
  * POST /file/:_id
  * body: {file, lock}
- * Updates a file with the associated _id
+ * Updates a file with the associated _id and pushes changes to slaves
+ * Also informs directory service and caching service of the update
  * @response message indicating success/failure of update
  */
 //TODO: make this encrypted with session token like everything else
-const updateFile = async(req, res) => {
+export const updateFile = async(req, res) => {
 
   // Ensure client's lock is valid
   let { _id } = req.params;
@@ -70,40 +72,44 @@ const updateFile = async(req, res) => {
     return res.status(status).send(response);
   }
 
-
-  // const newName = filename;
+  // Get the file from GFS
+  console.log(`Updating File: ${_id}`);
   _id = mongoose.Types.ObjectId(req.params._id);
   const gfs = req.app.get('gfs');
 
-  console.log(`Updating File: ${_id}`);
 
   gfs.files.findOne({_id}, (err, fileMeta) => {
+
+    // If no file entry, file not on this node
     if(!fileMeta) {
       console.log(`Could not find file ${_id}`);
       return res.status(404).send(`No such file ${_id} on this node.`)
     }
 
+    // Otherwise, increment the files version
     const version = ++fileMeta.metadata.version;
 
     // Delete old file
     gfs.remove({_id}, (err) => {
+
       if (err) {
         console.log(`Error: ${err}`);
         return res.status(500).send(err);
       }
-      console.log(`Removed file ${_id}`);
+
+      console.log(`Removed old version of ${_id}`);
       console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
 
-      // Save the uploaded file in its place
+      // Save the updated file that was just uploaded in its place
       const writeStream = gfs.createWriteStream({_id, filename, metadata: {version}});
       fs.createReadStream(req.file.path).pipe(writeStream);
 
-      // Notify directory service of updated file
-      // TODO: Only notify directory service if something changes?
-      writeStream.on('close', async (file) => {
-        console.log(`File ${file.filename} was updated - closing`);
 
-        // Delete the temp file
+      // Once the file has been successfully updated in the database
+      writeStream.on('close', async (file) => {
+        console.log(`File ${file.filename} was updated`);
+
+        // Delete the temp file that was uploaded
         fs.unlinkSync(req.file.path);
 
 
@@ -115,11 +121,17 @@ const updateFile = async(req, res) => {
           return res.status(status).send(response);
         }
 
-        // Let caching service know this file was updated
-        ({ ok, status, response } = await makeRequest(`${CACHING_SERVER}/notify/${_id}`, "put", {version}));
 
+        // Push changes to slaves
         await pushFileToSlaves(response.slaves, _id.toString(), filename, gfs, req.app.get('dir'));
+        if(!ok) {
+          console.error(response);
+          return res.status(status).send(response);
+        }
 
+
+        // Let caching service know this file was updated so it can invalidate clients caches
+        ({ ok, status, response } = await makeRequest(`${CACHING_SERVER}/notify/${_id}`, "put", {version}));
         if(!ok) {
           console.error(response);
           return res.status(status).send(response);
@@ -137,7 +149,7 @@ const updateFile = async(req, res) => {
  * Gets file with associated _id
  * @response the full file
  */
-const getFile = async (req, res) => {
+export const getFile = async (req, res) => {
   const gfs = req.app.get('gfs');
   const { _id } =  req.params;
 
@@ -169,7 +181,7 @@ const getFile = async (req, res) => {
  * Deletes file with specified id
  * @response message indicating the deletion was a success / failure
  */
-const deleteFile = async (req, res) => {
+export const deleteFile = async (req, res) => {
   const gfs = req.app.get('gfs');
   const _id = mongoose.Types.ObjectId(req.params._id);
   const { clientId } = req;
@@ -202,30 +214,17 @@ const deleteFile = async (req, res) => {
 };
 
 
+/***********************************************************************************************************************
+ * Slave API
+ **********************************************************************************************************************/
 
-/**
- * NOTE DEBUG/ADMIN ONLY (or at least it should be)
- * GET /files
- * Gets all Files on this nodes filesystem (admin)
- * @response JSON array containing all the files on this node
- */
-const getFiles = (req, res) => {
-  const gfs = req.app.get('gfs');
-  gfs.files.find({}).toArray((err, files) => {
-    if(err) {
-      return res.send(err);
-    }
-
-    res.send(files);
-  })
-};
 
 /**
  * POST /slave/:_id
  * Notifies Slave to store / update a file
  *
  */
-const receiveUpdateFromMaster = async (req, res) => {
+export const receiveUpdateFromMaster = async (req, res) => {
   // Ensure client's lock is valid
   let { _id } = req.params;
   const { filename } = req.body;
@@ -280,6 +279,24 @@ const receiveUpdateFromMaster = async (req, res) => {
 };
 
 
+/**
+ * NOTE DEBUG ONLY (or at least it should be)
+ * GET /files
+ * Gets all Files on this nodes filesystem (admin)
+ * @response JSON array containing all the files on this node
+ */
+export const getFiles = (req, res) => {
+  const gfs = req.app.get('gfs');
+  gfs.files.find({}).toArray((err, files) => {
+    if(err) {
+      return res.send(err);
+    }
+
+    res.send(files);
+  })
+};
+
+
 
 /***********************************************************************************************************************
  * Helper Methods
@@ -303,43 +320,53 @@ async function makeRequest(endpoint, method, body) {
   return {ok, status, response}
 }
 
+
+/**
+ * Pushes a file to all of the slave nodes
+ * @param slaves the list of nodes to push to
+ * @param remoteFileId the id of the file updated
+ * @param filename the (potentially) updated file name
+ * @param gfs Grid File System instance
+ * @param tmpdir Master's temporary files directory to write to
+ * @returns {Promise} that resolves once all slaves have received the file
+ */
 async function pushFileToSlaves(slaves, remoteFileId, filename, gfs, tmpdir) {
   // Couldn't get streams to cooperate here, so just write it to a temp file and read form there (ew)
   const writeStream = fs.createWriteStream(`${tmpdir}/${remoteFileId}.txt`);
-
   const fromGfs = gfs.createReadStream({_id: remoteFileId});
+  fromGfs.pipe(writeStream);
 
-  fromGfs.on('error', (err) => {
-    console.error(`err: `, err);
-  });
-
-  fromGfs.on('close', () => {
-
-    const pushedChanges = slaves.map(async (slave) => {
-      console.log(`Making request`);
-      const readStream = fs.createReadStream(`${tmpdir}/${remoteFileId}.txt`);
-
-      // Build the form data
-      const formData = new FormData();
-      formData.append('filename', filename);
-      formData.append('file', readStream);
-      return await fetch(`${slave}/slave/${remoteFileId}`, {method: 'POST', body: formData});
+  // Each worker must have fully received the file before we can progress
+  // Otherwise the cache service will be notified, and clients will attempt to pull down changes
+  // from slave nodes who may not yet have the updated file available
+  return new Promise((resolve, reject) => {
+    fromGfs.on('error', (err) => {
+      console.error(`err: `, err);
+      reject();
     });
 
+    fromGfs.on('close', async () => {
 
-    console.log(`Finished pushing changes to slaves`);
+      // Push changes to all slaves
+      const pushedChangesToSlave = slaves.map((slave) => {
+        console.log(`Pushing changes to slave ${slave}`);
+
+        // Read from the temporary file that was just created
+        const readStream = fs.createReadStream(`${tmpdir}/${remoteFileId}.txt`);
+
+        // Build the form data
+        const formData = new FormData();
+        formData.append('filename', filename);
+        formData.append('file', readStream);
+        return fetch(`${slave}/slave/${remoteFileId}`, {method: 'POST', body: formData});
+      });
+
+      // Move on once all slaves have received the file
+      await Promise.all(pushedChangesToSlave);
+      console.log(`Finished pushing changes to slaves, resolving`);
+      resolve();
+    });
   });
-
-  fromGfs.pipe(writeStream);
 }
-
-module.exports = {
-  getFile,
-  getFiles,
-  uploadFile,
-  updateFile,
-  deleteFile,
-  receiveUpdateFromMaster
-};
 
 
