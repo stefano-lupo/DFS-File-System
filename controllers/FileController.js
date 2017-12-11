@@ -234,14 +234,19 @@ export const receiveUpdateFromMaster = async (req, res) => {
 
   console.log(`Updating File: ${_id}`);
 
-  gfs.files.findOne({_id}, async (err, fileMeta) => {
+  gfs.files.findOne({_id}, (err, fileMeta) => {
 
     // Delete old file
     if(fileMeta) {
       const version = ++fileMeta.metadata.version;
+      console.log(`Deleting old file`);
+      gfs.remove({_id}, (error) => {
 
-      // Not sure if this will work
-      await gfs.remove({_id}, (err));
+        if(err) {
+          console.error(error);
+          return res.status(500).send({error})
+        }
+
         console.log(`Removed file ${_id}`);
         console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);
 
@@ -257,7 +262,7 @@ export const receiveUpdateFromMaster = async (req, res) => {
 
           res.send({message: `File ${filename} updated successfully`});
         })
-      // });
+      });
     } else {
       const version = 0;
       console.log(`Writing new file ${filename}, version = ${version} from ${req.file.path}`);

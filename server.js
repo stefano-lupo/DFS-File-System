@@ -8,10 +8,8 @@ import GridFsStorage from 'multer-gridfs-storage';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
 import fs from 'fs';
-
-
-// Initialize .env
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
 
 // Make encryption parameters accessible
@@ -111,6 +109,7 @@ const authenticator = (req, res, next) => {
 
   try {
     // Decrypt auth ticket with server's private key
+    console.log(authorization);
     const ticket = decrypt(authorization);
 
     // Parse the ticket from the decrypted string
@@ -121,7 +120,7 @@ const authenticator = (req, res, next) => {
     // Ensure the ticket is in date
     if(moment().isAfter(expires)) {
       console.log(`Ticket expired on ${expires.format()}`);
-      return res.status(401).send({message: `Authorization token expired on ${expires.format()}`});
+      return res.status(403).send({message: `Authorization token expired on ${expires.format()}`});
     }
 
 
@@ -135,7 +134,7 @@ const authenticator = (req, res, next) => {
   // If JSON couldn't be parsed, the token was
   catch(err) {
     console.log(err);
-    return res.status(401).send({message: `Invalid authorization key provided`})
+    return res.status(400).send({message: `Invalid authorization key provided`})
   }
 
   // Proceed to controller
