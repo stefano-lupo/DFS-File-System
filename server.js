@@ -7,6 +7,7 @@ import multer from 'multer';
 import GridFsStorage from 'multer-gridfs-storage';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
+import fs from 'fs';
 
 
 // Initialize .env
@@ -24,21 +25,25 @@ const encryption = {
 
 
 // Import Controllers
-import FileController from './controllers/FileController';
+import * as FileController from './controllers/FileController';
 
 
 // Create Server
 const app = express();
 app.use(bodyParser.urlencoded({extended: true}));   // Parses application/x-www-form-urlencoded for req.body
 app.use(bodyParser.json());                         // Parses application/json for req.body
-app.use(morgan('dev'));
+app.use(morgan('dev'));                             // Logs all incoming requests
 
+
+// Set some global constants to be used else where
+const port = process.argv[2] || process.env.port || 3000;
+const role = process.argv[3] || process.env.role || 'slave';
+app.set('port', port);
+app.set('ip', `http://localhost:${port}`);
+app.set('role', role);
 
 
 // Initialize the DB
-const port = process.argv[2] || process.env.port || 3000;
-app.set('port', port);
-app.set('ip', `http://localhost:${port}`);
 const dbURL = `mongodb://localhost/dfs_filesystem_${port}`;
 mongoose.connect(dbURL);
 const db = mongoose.connection;
@@ -72,13 +77,23 @@ const storage = new GridFsStorage({
 });
 const upload = multer({storage});
 
+
+// Ensure a folder exists for this ports tmp files
+const dir = `${__dirname}/tmpUploads/${port}`;
+console.log(`Saving files to ${dir}`);
+app.set('dir', dir);
+if(!fs.existsSync(dir)) {
+  fs.mkdir(dir);
+}
+
+
 // Handles updating a GFS file - Need to query the DB to find the old meta data so needs intermediate tmp file
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, `${__dirname}/tmpUploads`)
+    cb(null, dir)
   },
   filename: function (req, file, cb) {
-    cb(null, file.fieldname + '-' + Date.now())
+    cb(null, `${req.params._id}_${Date.now()}`);
   }
 });
 const updater = multer({storage: diskStorage});
@@ -123,16 +138,18 @@ const authenticator = (req, res, next) => {
     return res.status(401).send({message: `Invalid authorization key provided`})
   }
 
+  // Proceed to controller
   next()
 };
+
+// Inter Service Endpoints
+app.post('/slave/:_id', updater.single('file'), FileController.receiveUpdateFromMaster);
+
 
 app.use(authenticator);
 
 
-
-
-
-// Endpoints
+// Public Endpoints
 app.get('/files', FileController.getFiles);
 app.get('/file/:_id', FileController.getFile);
 app.post('/file', upload.single('file'), FileController.uploadFile);
